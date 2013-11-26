@@ -20,8 +20,27 @@
 #include <string>
 using std::string;
 
+struct global_namespace_struct
+{
+};
+
+struct a_struct
+{
+    std::string j()
+    {
+        return "::a_struct::j";
+    }
+};
+
 namespace test
 {
+    namespace inner
+    {
+        struct a_struct
+        {
+        };
+    }
+
     struct a_struct
     {
         std::string f()

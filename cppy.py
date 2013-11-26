@@ -16,6 +16,7 @@
 # along with cppy.  If not, see <http://www.gnu.org/licenses/>.
 
 from clang.cindex import *
+import os, errno
 
 class cxx_method(object):
     def __init__(self, name, return_type, scope = ''):
@@ -297,7 +298,16 @@ class cxx_class(object):
         return name
 
     def boost_python_class(self, includes = list()):
-        f = open(self.name.lower() + '.cpp', 'w')
+        file_path = ''
+        if self.scope:
+            file_path = self.scope.replace('::', '/') + '/'
+            qualified_name = self.scope + '::' + self.name
+        else:
+            qualified_name = self.name
+        file_path += self.name.lower() + '.cpp'
+
+        f = open(file_path, 'w')
+
         f.write('#include <boost/python.hpp>\n')
         for i in includes:
             f.write('#include <' + i + '>\n')
@@ -354,11 +364,14 @@ class cxx_class(object):
         if len(boost_python_overloads):
             f.write('\n')
 
-        f.write('struct ' + self.name + '_wrapper: public ' + self.name + ', public wrapper<' + self.name +
+        f.write('struct ' + self.name + '_wrapper: public ' + qualified_name + ', public wrapper<' + qualified_name +
             '>\n{\n')
         for o in boost_python_overrides:
             f.write('    ' + o + '\n')
         f.write('};\n\n')
+
+        if self.scope:
+            f.write('namespace ' + ' { namespace ' . join(s for s in self.scope.split('::')) + '\n{\n')
 
         f.write('void export_' + self.name + '()\n{\n')
 
@@ -372,6 +385,11 @@ class cxx_class(object):
         for v in boost_python_definitions:
             f.write('        ' + v + '\n')
         f.write('    ;\n}')
+
+        if self.scope:
+            f.write('\n')
+            for s in self.scope.split('::'):
+                f.write('}')
 
         f.close()
 
@@ -390,7 +408,6 @@ def process_class(cursor, scope):
 
 exported_classes = dict()
 def process_namespace(cursor, classes):
-
     for i in cursor.get_children():
         if i.kind == CursorKind.NAMESPACE:
             process_namespace(i, classes)
@@ -401,18 +418,87 @@ def process_namespace(cursor, classes):
                     c = process_class(i, cursor.spelling)
                 exported_classes[i.get_usr()] = c, i.location.file.name
 
-def process_scope(cursor, scope, classes):
+def process_scope(cursor, scope, path, classes):
+    si = scope
     try:
-        si = scope.next()
+        si = si.next()
+        try:
+            path = os.path.join(path, si)
+            os.mkdir(path)
+        except OSError as e:
+            if not e.errno == errno.EEXIST or not os.path.isdir(path):
+                raise
 
         for i in cursor.get_children():
             if i.spelling == si:
-                process_scope(i, scope, classes)
-    except:
+                process_scope(i, scope, path, classes)
+
+    except StopIteration:
+        exports_forward = list()
+        exports = list()
         for i in cursor.get_children():
-            if i.spelling == si:
-                if i.kind == CursorKind.NAMESPACE:
-                    process_namespace(i, classes)
+            if i.kind == CursorKind.NAMESPACE and i.spelling == si:
+                process_namespace(i, classes)
+            elif i.kind == CursorKind.CLASS_DECL or i.kind == CursorKind.STRUCT_DECL:
+                if i.is_definition():
+                    c = None
+                    if i.spelling in classes:
+                        parent = cursor
+                        full_scope = parent.spelling if parent.spelling else ''
+                        while parent:
+                            parent = parent.semantic_parent
+                            if parent and parent.spelling:
+                                full_scope = parent.spelling + '::' + full_scope
+                        c = process_class(i, full_scope)
+                        qualified_name = c.scope + '::export_' + c.name if c.scope else 'export_' + c.name
+
+                        exports_forward.append('void export_' + c.name + '();')
+                        exports.append(qualified_name + '();')
+
+                    exported_classes[i.get_usr()] = c, i.location.file.name
+
+        if cursor.kind == CursorKind.NAMESPACE:
+            f = open(path + '/__init__.py', 'w')
+            f.write('from _' + cursor.spelling + ' import *')
+            f.close()
+
+            f = open(path + '/module.cpp', 'w')
+            f.write('#include <boost/python/module.hpp>\n')
+
+            parent = cursor
+            full_scope = parent.spelling if parent.spelling else ''
+            while parent:
+                parent = parent.semantic_parent
+                if parent and parent.spelling:
+                    full_scope = parent.spelling + '::' + full_scope
+            f.write('namespace ' + ' { namespace ' . join(s for s in full_scope.split('::')) + '\n{\n')
+
+            for export in exports_forward:
+                f.write('    ' + export + '\n')
+
+            for s in full_scope.split('::'):
+                f.write('}')
+            f.write('\n')
+
+            f.write('BOOST_PYTHON_MODULE(_' + cursor.spelling + ')\n{\n')
+        else:
+            f = open('__init__.py', 'w')
+            f.write('from _' + 'cppy_test' + ' import *')
+            f.close()
+
+            f = open('module.cpp', 'w')
+            f.write('#include <boost/python/module.hpp>\n')
+
+            for export in exports_forward:
+                f.write(export + '\n')
+
+            f.write('BOOST_PYTHON_MODULE(_' + 'cppy_test' + ')\n{\n')
+
+        for export in exports:
+            f.write('    ' + export + '\n')
+
+        f.write('}')
+        f.close()
 
 
 def main():
@@ -451,7 +537,7 @@ def main():
             print diag
         sys.exit(1)
 
-    process_scope(tu.cursor, scope, args.classes)
+    process_scope(tu.cursor, scope, os.curdir, args.classes)
 
     for usr, (c, location) in exported_classes.iteritems():
         if c:
