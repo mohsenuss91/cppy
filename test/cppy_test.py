@@ -15,16 +15,21 @@
 # You should have received a copy of the GNU General Public License
 # along with cppy.  If not, see <http://www.gnu.org/licenses/>.
 
-import cppy_test, cppy_test.test
 import unittest
+from cppy_test import test, global_namespace_struct
+from cppy_test.test import inner
 
 class TestGlobalNamespaceStruct(unittest.TestCase):
     def test_construction(self):
-        cppy_test.global_namespace_struct()
+        global_namespace_struct()
+
+class TestInnerNamespaceStruct(unittest.TestCase):
+    def test_construction(self):
+        test.inner.a_struct()
 
 class TestStruct(unittest.TestCase):
     def setUp(self):
-        self.a = cppy_test.test.a_struct()
+        self.a = test.a_struct()
 
     def test_default_access_method(self):
         self.assertEqual(self.a.f(), 'a_struct::f')
@@ -40,7 +45,7 @@ class TestStruct(unittest.TestCase):
 
 class TestClass(unittest.TestCase):
     def setUp(self):
-        self.a = cppy_test.test.a_class()
+        self.a = test.a_class()
 
     def test_default_access_method(self):
         self.assertRaises(AttributeError, getattr, self.a, 'f')
@@ -56,11 +61,11 @@ class TestClass(unittest.TestCase):
 
 class TestAbstractClass(unittest.TestCase):
     def test_construction(self):
-        self.assertRaises(RuntimeError, cppy_test.test.an_abstract_class)
+        self.assertRaises(RuntimeError, test.an_abstract_class)
 
 class TestPublicDerived(unittest.TestCase):
     def setUp(self):
-        self.a = cppy_test.test.public_derived()
+        self.a = test.public_derived()
 
     def test_public_base_method(self):
         self.assertEqual(self.a.f(), 'an_abstract_class::f')

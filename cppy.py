@@ -306,7 +306,7 @@ class cxx_class(object):
             qualified_name = self.name
         file_path += self.name.lower() + '.cpp'
 
-        f = open(file_path, 'w')
+        f = open(module_name + '/' + file_path, 'w')
 
         f.write('#include <boost/python.hpp>\n')
         for i in includes:
@@ -407,98 +407,79 @@ def process_class(cursor, scope):
     return c
 
 exported_classes = dict()
-def process_namespace(cursor, classes):
-    for i in cursor.get_children():
-        if i.kind == CursorKind.NAMESPACE:
-            process_namespace(i, classes)
-        if i.kind == CursorKind.CLASS_DECL or i.kind == CursorKind.STRUCT_DECL:
-            if i.is_definition():
-                c = None
-                if i.spelling in classes:
-                    c = process_class(i, cursor.spelling)
-                exported_classes[i.get_usr()] = c, i.location.file.name
-
 def process_scope(cursor, scope, path, classes):
-    si = scope
     try:
-        si = si.next()
+        os.mkdir(path)
+        f = open(os.path.join(path, '__init__.py'), 'w')
+        f.close()
+    except OSError as e:
+        if not e.errno == errno.EEXIST or not os.path.isdir(path):
+            raise
+
+    for s in scope:
+        path = os.path.join(path, s)
         try:
-            path = os.path.join(path, si)
             os.mkdir(path)
         except OSError as e:
             if not e.errno == errno.EEXIST or not os.path.isdir(path):
                 raise
+        f = open(os.path.join(path, '__init__.py'), 'w')
+        f.close()
 
         for i in cursor.get_children():
-            if i.spelling == si:
-                process_scope(i, scope, path, classes)
+            if i.kind == CursorKind.NAMESPACE and i.spelling == s:
+                cursor = i
 
-    except StopIteration:
-        exports_forward = list()
-        exports = list()
-        for i in cursor.get_children():
-            if i.kind == CursorKind.NAMESPACE and i.spelling == si:
-                process_namespace(i, classes)
-            elif i.kind == CursorKind.CLASS_DECL or i.kind == CursorKind.STRUCT_DECL:
-                if i.is_definition():
-                    c = None
-                    if i.spelling in classes:
-                        parent = cursor
-                        full_scope = parent.spelling if parent.spelling else ''
-                        while parent:
-                            parent = parent.semantic_parent
-                            if parent and parent.spelling:
-                                full_scope = parent.spelling + '::' + full_scope
-                        c = process_class(i, full_scope)
-                        qualified_name = c.scope + '::export_' + c.name if c.scope else 'export_' + c.name
+    exports_forward = list()
+    exports = list()
+    for i in cursor.get_children():
+        if i.kind == CursorKind.CLASS_DECL or i.kind == CursorKind.STRUCT_DECL:
+            if i.is_definition():
+                c = None
+                if i.spelling in classes:
+                    c = process_class(i, '::' . join(scope))
+                    qualified_name = c.scope + '::export_' + c.name if c.scope else 'export_' + c.name
 
-                        exports_forward.append('void export_' + c.name + '();')
-                        exports.append(qualified_name + '();')
+                    exports_forward.append('void export_' + c.name + '();')
+                    exports.append(qualified_name + '();')
 
-                    exported_classes[i.get_usr()] = c, i.location.file.name
+                exported_classes[i.get_usr()] = c, i.location.file.name
 
-        if cursor.kind == CursorKind.NAMESPACE:
-            f = open(path + '/__init__.py', 'w')
-            f.write('from _' + cursor.spelling + ' import *')
-            f.close()
+    if cursor.kind == CursorKind.NAMESPACE:
+        f = open(os.path.join(path, '__init__.py'), 'w')
+        f.write('from _' + cursor.spelling + ' import *')
+        f.close()
 
-            f = open(path + '/module.cpp', 'w')
-            f.write('#include <boost/python/module.hpp>\n')
+        f = open(os.path.join(path, 'module.cpp'), 'w')
+        f.write('#include <boost/python/module.hpp>\n')
+        f.write('namespace ' + ' { namespace ' . join(scope) + '\n{\n')
 
-            parent = cursor
-            full_scope = parent.spelling if parent.spelling else ''
-            while parent:
-                parent = parent.semantic_parent
-                if parent and parent.spelling:
-                    full_scope = parent.spelling + '::' + full_scope
-            f.write('namespace ' + ' { namespace ' . join(s for s in full_scope.split('::')) + '\n{\n')
-
-            for export in exports_forward:
-                f.write('    ' + export + '\n')
-
-            for s in full_scope.split('::'):
-                f.write('}')
-            f.write('\n')
-
-            f.write('BOOST_PYTHON_MODULE(_' + cursor.spelling + ')\n{\n')
-        else:
-            f = open('__init__.py', 'w')
-            f.write('from _' + 'cppy_test' + ' import *')
-            f.close()
-
-            f = open('module.cpp', 'w')
-            f.write('#include <boost/python/module.hpp>\n')
-
-            for export in exports_forward:
-                f.write(export + '\n')
-
-            f.write('BOOST_PYTHON_MODULE(_' + 'cppy_test' + ')\n{\n')
-
-        for export in exports:
+        for export in exports_forward:
             f.write('    ' + export + '\n')
 
-        f.write('}')
+        for s in scope:
+            f.write('}')
+        f.write('\n')
+
+        f.write('BOOST_PYTHON_MODULE(_' + cursor.spelling + ')\n{\n')
+    else:
+        f = open(os.path.join(path, '__init__.py'), 'w')
+        f.write('from _' + module_name + ' import *')
         f.close()
+
+        f = open(os.path.join(path, 'module.cpp'), 'w')
+        f.write('#include <boost/python/module.hpp>\n')
+
+        for export in exports_forward:
+            f.write(export + '\n')
+
+        f.write('BOOST_PYTHON_MODULE(_' + module_name + ')\n{\n')
+
+    for export in exports:
+        f.write('    ' + export + '\n')
+
+    f.write('}')
+    f.close()
 
 
 def main():
@@ -513,11 +494,15 @@ def main():
     options.add_argument('-I', metavar = ('DIRECTORY'), action = 'append', help =
         'add directory to include search path')
     options.add_argument('-f', '--filename', required = True, help = 'filename to process')
+    options.add_argument('-m', '--module', required = True, help = 'name of main module')
 
     args = options.parse_args()
 
     if args.clang:
         Config.set_library_file(args.clang)
+
+    global module_name
+    module_name = args.module
 
     global include_paths
     if args.I:
@@ -525,9 +510,9 @@ def main():
     else:
         include_paths = list()
 
-    scope = iter([])
+    scope = []
     if args.scope:
-        scope = iter(args.scope.split('::'))
+        scope = args.scope.split('::')
 
     index = Index.create()
     tu = index.parse(args.filename, args = include_paths + ['-xc++'])
@@ -537,7 +522,7 @@ def main():
             print diag
         sys.exit(1)
 
-    process_scope(tu.cursor, scope, os.curdir, args.classes)
+    process_scope(tu.cursor, scope, os.path.join(os.curdir, module_name), args.classes)
 
     for usr, (c, location) in exported_classes.iteritems():
         if c:
