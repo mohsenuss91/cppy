@@ -57,6 +57,7 @@ class cxx_method(object):
         value = '.def("' + self.name + '", '
         if number:
             function = self.name + str(number)
+            function_wrapper = function
         else:
             function = '&' + self.scope
             function_wrapper = function + '_wrapper'
