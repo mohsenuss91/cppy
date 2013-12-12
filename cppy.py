@@ -416,6 +416,7 @@ def process_scope(cursor, scope, path, classes):
         if not e.errno == errno.EEXIST or not os.path.isdir(path):
             raise
 
+    namespaces = [cursor]
     for s in scope:
         path = os.path.join(path, s)
         try:
@@ -426,61 +427,54 @@ def process_scope(cursor, scope, path, classes):
         f = open(os.path.join(path, '__init__.py'), 'w')
         f.close()
 
-        for i in cursor.get_children():
-            if i.kind == CursorKind.NAMESPACE and i.spelling == s:
-                cursor = i
+        temp = list()
+        for n in namespaces:
+            for i in n.get_children():
+                if i.kind == CursorKind.NAMESPACE and i.spelling == s:
+                    temp.append(i)
+        namespaces = temp
 
     exports_forward = list()
     exports = list()
-    for i in cursor.get_children():
-        if i.kind == CursorKind.CLASS_DECL or i.kind == CursorKind.STRUCT_DECL:
-            if i.is_definition():
-                c = None
-                if i.spelling in classes:
-                    c = process_class(i, '::' . join(scope))
-                    qualified_name = c.scope + '::export_' + c.name if c.scope else 'export_' + c.name
+    for n in namespaces:
+        for i in n.get_children():
+            if i.kind == CursorKind.CLASS_DECL or i.kind == CursorKind.STRUCT_DECL:
+                if i.is_definition():
+                    c = None
+                    if i.spelling in classes:
+                        c = process_class(i, '::' . join(scope))
+                        qualified_name = c.scope + '::export_' + c.name if c.scope else 'export_' + c.name
 
-                    exports_forward.append('void export_' + c.name + '();')
-                    exports.append(qualified_name + '();')
+                        exports_forward.append('void export_' + c.name + '();')
+                        exports.append(qualified_name + '();')
 
-                exported_classes[i.get_usr()] = c, i.location.file.name
+                    exported_classes[i.get_usr()] = c, i.location.file.name
 
-    if cursor.kind == CursorKind.NAMESPACE:
-        f = open(os.path.join(path, '__init__.py'), 'w')
-        f.write('from _' + cursor.spelling + ' import *')
-        f.close()
+    current_module_name = namespaces[0].spelling if len(scope) else module_name
 
-        f = open(os.path.join(path, 'module.cpp'), 'w')
-        f.write('#include <boost/python/module.hpp>\n')
+    f = open(os.path.join(path, '__init__.py'), 'w')
+    f.write('from _' + current_module_name + ' import *')
+    f.close()
+
+    f = open(os.path.join(path, 'module.cpp'), 'w')
+    f.write('#include <boost/python/module.hpp>\n')
+    if len(scope):
         f.write('namespace ' + ' { namespace ' . join(scope) + '\n{\n')
 
-        for export in exports_forward:
-            f.write('    ' + export + '\n')
+    for export in exports_forward:
+        f.write('    ' + export + '\n')
 
-        for s in scope:
-            f.write('}')
-        f.write('\n')
+    for s in scope:
+        f.write('}')
+    f.write('\n')
 
-        f.write('BOOST_PYTHON_MODULE(_' + cursor.spelling + ')\n{\n')
-    else:
-        f = open(os.path.join(path, '__init__.py'), 'w')
-        f.write('from _' + module_name + ' import *')
-        f.close()
-
-        f = open(os.path.join(path, 'module.cpp'), 'w')
-        f.write('#include <boost/python/module.hpp>\n')
-
-        for export in exports_forward:
-            f.write(export + '\n')
-
-        f.write('BOOST_PYTHON_MODULE(_' + module_name + ')\n{\n')
+    f.write('BOOST_PYTHON_MODULE(_' + current_module_name + ')\n{\n')
 
     for export in exports:
         f.write('    ' + export + '\n')
 
     f.write('}')
     f.close()
-
 
 def main():
     import argparse

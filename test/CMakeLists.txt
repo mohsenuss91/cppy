@@ -6,7 +6,7 @@ function(insert_element key value)
 endfunction()
 
 insert_element(" " "global_namespace_struct a_struct")
-insert_element("test" "a_struct a_class an_abstract_class public_derived protected_derived private_derived")
+insert_element("test" "a_struct a_class an_abstract_class public_derived protected_derived private_derived a_struct2")
 insert_element("test::inner" "a_struct")
 
 set(MAIN_MODULE_NAME cppy_test)

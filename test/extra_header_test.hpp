@@ -17,5 +17,9 @@
 * along with cppy.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "core.hpp"
-#include "extra_header_test.hpp"
+namespace test
+{
+    struct a_struct2
+    {
+    };
+}

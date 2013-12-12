@@ -27,6 +27,10 @@ class TestInnerNamespaceStruct(unittest.TestCase):
     def test_construction(self):
         test.inner.a_struct()
 
+class TestStruct2(unittest.TestCase):
+    def test_construction(self):
+        test.a_struct2()
+
 class TestStruct(unittest.TestCase):
     def setUp(self):
         self.a = test.a_struct()
